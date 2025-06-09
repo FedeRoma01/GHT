@@ -4,6 +4,7 @@ SERIAL = serial
 
 # File sorgente
 PARALLEL_SRC = parall_mult_template_rot_scale_master.c
+PARALLEL_P_SRC = parall_prof.c
 SERIAL_SRC = serial_mult_template_rot_scale.c
 
 # Compilatori
@@ -21,8 +22,8 @@ LIBS = -lm
 all: $(PARALLEL) $(SERIAL)
 
 # Compilazione parallela
-$(PARALLEL): $(PARALLEL_SRC)
-	$(MPICC) $(CFLAGS_PARALLEL) -o $(PARALLEL) $(PARALLEL_SRC) $(LIBS)
+$(PARALLEL): $(PARALLEL_P_SRC)
+	$(MPICC) $(CFLAGS_PARALLEL) -o $(PARALLEL) $(PARALLEL_P_SRC) $(LIBS)
 
 # Compilazione seriale
 $(SERIAL): $(SERIAL_SRC)
