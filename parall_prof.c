@@ -390,11 +390,19 @@ int main(int argc, char **argv) {
     int scene_w = 0, scene_h = 0;
     unsigned char *scene_img = NULL;
     if (rank == 0) scene_img = load_image_dynamic(scene_file, &scene_w, &scene_h);
+
+    timestamp_start = MPI_Wtime();
     MPI_Bcast(&scene_w, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&scene_h, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+
     int scene_size = scene_w * scene_h;
     if (rank != 0) scene_img = malloc(scene_size);
+    timestamp_start = MPI_Wtime();
     MPI_Bcast(scene_img, scene_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
     int start_row = rank * scene_h / size;
     int end_row = (rank == size - 1) ? scene_h : (rank + 1) * scene_h / size;
@@ -431,8 +439,11 @@ int main(int argc, char **argv) {
         // TEMPLATE LOADING
         unsigned char *template_img = NULL;
         if (rank == 0) template_img = load_image_dynamic(argv[t], &tw, &th);
+        timestamp_start = MPI_Wtime();
         MPI_Bcast(&tw, 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Bcast(&th, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        timestamp_end = MPI_Wtime();
+        fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
         // TEMPLATE GRADIENT COMPUTATION
     
@@ -480,8 +491,11 @@ int main(int argc, char **argv) {
                     free(resized);
                 }
 
+                timestamp_start = MPI_Wtime();
                 MPI_Bcast(&tw_s, 1, MPI_INT, 0, MPI_COMM_WORLD);
                 MPI_Bcast(&th_s, 1, MPI_INT, 0, MPI_COMM_WORLD);
+                timestamp_end = MPI_Wtime();
+                fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
                 if (rank == 0) {
                     float *tgrad_x = malloc(tw_s * th_s * sizeof(float));
@@ -515,8 +529,11 @@ int main(int argc, char **argv) {
                 //MPI_Bcast(tgrad_x, tw_s * th_s, MPI_FLOAT, 0, MPI_COMM_WORLD);
                 //MPI_Bcast(tgrad_y, tw_s * th_s, MPI_FLOAT, 0, MPI_COMM_WORLD);
                 //MPI_Bcast(tedges, tw_s * th_s, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+                timestamp_start = MPI_Wtime();
                 MPI_Bcast(lookup_table, sizeof(lookup_table), MPI_BYTE, 0, MPI_COMM_WORLD);
                 MPI_Bcast(lookup_count, ANGLE_BINS, MPI_INT, 0, MPI_COMM_WORLD);
+                timestamp_end = MPI_Wtime();
+                fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
                 
                 control = 0;
 
@@ -528,8 +545,15 @@ int main(int argc, char **argv) {
                 fprintf(profile_fp, "generalized_hough (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
 
                 memset(global_accumulator, 0, scene_size * sizeof(int));
+                timestamp_start = MPI_Wtime();
                 MPI_Reduce(local_accumulator, global_accumulator, scene_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+                timestamp_end = MPI_Wtime();
+                fprintf(profile_fp, "MPI_Reduce: %.6f s\n", timestamp_end - timestamp_start);
+
+                timestamp_start = MPI_Wtime();
                 MPI_Bcast(global_accumulator, scene_size, MPI_INT, 0, MPI_COMM_WORLD);
+                timestamp_end = MPI_Wtime();
+                fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
                 int window_size = (int)(fmax(tw_s, th_s) / 4.0);
                 if (window_size % 2 == 0) window_size++;
@@ -541,7 +565,11 @@ int main(int argc, char **argv) {
                 fprintf(profile_fp, "non_maximum_suppression (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
 
                 memset(global_nms_result, 0, scene_size * sizeof(int));
+                timestamp_start = MPI_Wtime();
                 MPI_Reduce(nms_result, global_nms_result, scene_size, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+                timestamp_end = MPI_Wtime();
+                fprintf(profile_fp, "MPI_Reduce: %.6f s\n", timestamp_end - timestamp_start);
+               
                 if (rank == 0) {
                     char fname[128];
                     snprintf(fname, sizeof(fname), "overlay_result_t%d_s%.1f_a%.0f.ppm", t, scales[si], angles[ai]);
