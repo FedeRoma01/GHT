@@ -408,8 +408,15 @@ int main(int argc, char **argv) {
     int *nms_result = calloc(scene_size, sizeof(int));
     int *global_nms_result = calloc(scene_size, sizeof(int));
 
+    timestamp_start = MPI_Wtime();
     compute_gradient(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h);
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "compute_gradient (scene): %.6f s\n", timestamp_end - timestamp_start);
+
+    timestamp_start = MPI_Wtime();
     detect_edges(magnitude, edges, scene_w, scene_h);
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "detect_edges (scene): %.6f s\n", timestamp_end - timestamp_start);
 
     save_edges_pgm("scene_edges.pgm", edges, scene_w, scene_h);
 
@@ -439,8 +446,17 @@ int main(int argc, char **argv) {
             tgrad_y = malloc(tw * th * sizeof(float));
             tmagnitude = malloc(tw * th * sizeof(float));
             t_edges = malloc(tw * th * sizeof(unsigned char));
+
+            timestamp_start = MPI_Wtime();
             compute_gradient(template_img, tgrad_x, tgrad_y, tmagnitude, tw, th);
+            timestamp_end = MPI_Wtime();
+            fprintf(profile_fp, "compute_gradient (template): %.6f s\n", timestamp_end - timestamp_start);
+
+            timestamp_start = MPI_Wtime();
             detect_edges(tmagnitude, t_edges, tw, th);
+            timestamp_end = MPI_Wtime();
+            fprintf(profile_fp, "detect_edges (template): %.6f s\n", timestamp_end - timestamp_start);
+            
             free(tgrad_x);
             free(tgrad_y);
             free(tmagnitude);
@@ -473,9 +489,20 @@ int main(int argc, char **argv) {
                     float *tmagnitude = malloc(tw_s * th_s * sizeof(float));
                     unsigned char *tedges = malloc(tw_s * th_s * sizeof(unsigned char));
 
+                    timestamp_start = MPI_Wtime();
                     compute_gradient(rotated, tgrad_x, tgrad_y, tmagnitude, tw_s, th_s);
+                    timestamp_end = MPI_Wtime();
+                    fprintf(profile_fp, "compute_gradient (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
+
+                    timestamp_start = MPI_Wtime();
                     detect_edges(tmagnitude, tedges, tw_s, th_s);
+                    timestamp_end = MPI_Wtime();
+                    fprintf(profile_fp, "detect_edges (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
+
+                    timestamp_start = MPI_Wtime();
                     build_lookup_table(tedges, tgrad_x, tgrad_y, tw_s, th_s, &counter[si], control);
+                    timestamp_end = MPI_Wtime();
+                    fprintf(profile_fp, "build_lookup_table (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
 
                     //char name[128];
                     //snprintf(name, sizeof(name), "edges_t%d_s%.1f_a%.0f.pgm", t, scales[si], angles[ai]);
@@ -519,7 +546,10 @@ int main(int argc, char **argv) {
                     char fname[128];
                     snprintf(fname, sizeof(fname), "overlay_result_t%d_s%.1f_a%.0f.ppm", t, scales[si], angles[ai]);
                     //save_accumulator_pgm(fname, global_nms_result, scene_w, scene_h);
+                    timestamp_start = MPI_Wtime();
                     save_detection_overlay(fname, scene_img, global_nms_result, scene_w, scene_h, tw_s, th_s);
+                    timestamp_end = MPI_Wtime();
+                    fprintf(profile_fp, "save_detection_overlay (s=%.1f, a=%.0f): %.6f s\n", scales[si], angles[ai], timestamp_end - timestamp_start);
                     //printf("Salvato: %s\n", fname);
                 }
             }
