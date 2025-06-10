@@ -508,7 +508,7 @@ int main(int argc, char **argv) {
             snprintf(fname, sizeof(fname), "overlay_result_t%d_s%.1f_a%.0f.ppm", t, scale, angle);
             //save_accumulator_pgm(fname, global_nms_result, scene_w, scene_h);
             timestamp_start = MPI_Wtime();
-            save_detection_overlay(fname, scene_img, global_nms_result, scene_w, scene_h, tw_s, th_s);
+            save_detection_overlay(fname, scene_img, nms_result, scene_w, scene_h, tw_s, th_s);
             timestamp_end = MPI_Wtime();
             fprintf(profile_fp, "save_detection_overlay (s=%.1f, a=%.0f): %.6f s\n", scale, angle, timestamp_end - timestamp_start);
             //printf("Salvato: %s\n", fname);
