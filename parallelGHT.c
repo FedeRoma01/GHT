@@ -53,7 +53,7 @@ void compute_gradient_local(unsigned char *img, float *grad_x, float *grad_y, fl
                     int xi = x + j;
                     int yi = y + i;
                     if (xi == -1 || xi == width)      // control for the right and left bounds 
-                        value = img[y * width + x];
+                        value = img[yi * width + x];
                     else
                         value = img[yi * width + xi];
                     sum_x += gx[i+1][j+1] * value;
@@ -237,7 +237,7 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
 }
 
 unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int width, int height, float angle_degrees, int *new_width, int *new_height) {
-    float angle_radians = angle_degrees * (M_PI / 180.0f);
+    float angle_radians = -angle_degrees * (M_PI / 180.0f);
     float cos_theta = cos(angle_radians);
     float sin_theta = sin(angle_radians);
 

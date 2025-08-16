@@ -52,21 +52,27 @@ unsigned char* load_image_dynamic(const char *filename, int *width, int *height)
 void compute_gradient(unsigned char *img, float *grad_x, float *grad_y, float *magnitude, int width, int height) {
     int gx[3][3] = {{-1,0,1},{-2,0,2},{-1,0,1}};
     int gy[3][3] = {{-1,-2,-1},{0,0,0},{1,2,1}};
+    int value;
 
     memset(magnitude, 0, width * height * sizeof(float));
     memset(grad_x, 0, width * height * sizeof(float)); //
     memset(grad_y, 0, width * height * sizeof(float)); //
 
     for (int y = 1; y < height - 1; y++) {
-        for (int x = 1; x < width - 1; x++) {
+        for (int x = 0; x < width; x++) {
             float sum_x = 0, sum_y = 0;
-            for (int i = -1; i <= 1; i++)
+            for (int i = -1; i <= 1; i++) {
                 for (int j = -1; j <= 1; j++) {
                     int xi = x + j;
                     int yi = y + i;
-                    sum_x += gx[i+1][j+1] * img[yi * width + xi];
-                    sum_y += gy[i+1][j+1] * img[yi * width + xi];
+                    if (xi == -1 || xi == width)      // control for the right and left bounds 
+                        value = img[yi * width + x];
+                    else
+                        value = img[yi * width + xi];
+                    sum_x += gx[i+1][j+1] * value;
+                    sum_y += gy[i+1][j+1] * value;
                 }
+            }
             int idx = y * width + x;
             grad_x[idx] = sum_x;
             grad_y[idx] = sum_y;
