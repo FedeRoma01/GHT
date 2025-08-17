@@ -556,7 +556,7 @@ int main(int argc, char **argv) {
         unsigned char *edges = malloc(scene_size);
 
         timestamp_start = MPI_Wtime();
-        compute_gradient_mpi(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h, MPI_COMM_WORLD);
+        compute_gradient_mpi(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h, MPI_COMM_WORLD, profile_fp);
         timestamp_end = MPI_Wtime(); 
         fprintf(profile_fp, "compute_gradient (scene): %.6f s\n", timestamp_end - timestamp_start);
 
