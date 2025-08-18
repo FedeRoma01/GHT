@@ -28,26 +28,26 @@ for filename in glob.glob("profiling_rank_*.txt"):
                 print(f"Errore nel parsing della riga: '{line.strip()}'")
 
 # Leggi tutti i file di profiling
-for filename in glob.glob(f"profiling_rank_{max_index}.txt"):
-    with open(filename) as f:
-        for line in f:
-            if ':' not in line:
-                continue
-            try:
-                func_name, time_str = line.strip().split(':')
-                func_name = func_name.strip().split('(')[0]
-                exec_time = float(time_str.strip().split()[0])
-                if "(GH)" in line:
-                    gh_comm_times += exec_time
-                elif "(CG)" in line:
-                    cg_comm_times += exec_time
-                elif func_name == "TOTAL_TIME":
-                    total_times.append(exec_time)
-                else:
-                    # Aggiungi al dizionario aggregato per file
-                    time_per_function_per_file[filename][func_name] += exec_time
-            except ValueError:
-                print(f"Errore nel parsing della riga: '{line.strip()}'")
+filename = f"profiling_rank_{max_index}.txt"
+with open(filename) as f:
+    for line in f:
+        if ':' not in line:
+            continue
+        try:
+            func_name, time_str = line.strip().split(':')
+            func_name = func_name.strip().split('(')[0]
+            exec_time = float(time_str.strip().split()[0])
+            if "(GH)" in line:
+                gh_comm_times += exec_time
+            elif "(CG)" in line:
+                cg_comm_times += exec_time
+            elif func_name == "TOTAL_TIME":
+                total_times.append(exec_time)
+            else:
+                # Aggiungi al dizionario aggregato per file
+                time_per_function_per_file[filename][func_name] += exec_time
+        except ValueError:
+            print(f"Errore nel parsing della riga: '{line.strip()}'")
 
 # Calcola il tempo totale come il massimo dei TOTAL_TIME (wall-clock parallelo)
 wall_clock_total_time = total_times[0] if total_times else 0.0
