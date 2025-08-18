@@ -43,6 +43,9 @@ EOF
 
     # Monta il bucket
     sudo fusermount -u $MOUNTPOINT >/dev/null 2>&1 || true
-    sudo gcsfuse $BUCKET $MOUNTPOINT
+    sudo gcsfuse --implicit-dirs \
+        --uid=$(id -u roma) --gid=$(id -g roma) \
+        --file-mode=644 --dir-mode=755 \
+        $BUCKET $MOUNTPOINT
   '"
 done
