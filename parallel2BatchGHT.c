@@ -395,7 +395,7 @@ int main(int argc, char **argv) {
     double timestamp_start, timestamp_end;
     FILE *profile_fp = NULL;
     char profile_filename[64];
-    snprintf(profile_filename, sizeof(profile_filename), "profiling_rank_%d.txt", rank);
+    snprintf(profile_filename, sizeof(profile_filename), "/shared/profiling_rank_%d.txt", rank);
     profile_fp = fopen(profile_filename, "w");
     if (!profile_fp) {
         fprintf(stderr, "Errore apertura file di profiling per rank %d\n", rank);
