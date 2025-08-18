@@ -12,8 +12,23 @@ time_per_function_per_file = defaultdict(lambda: defaultdict(float))
 gh_comm_times = 0.0
 cg_comm_times = 0.0
 
-# Leggi tutti i file di profiling
+max_index = 0
+
 for filename in glob.glob("profiling_rank_*.txt"):
+    with open(filename) as f:
+        for line in f:
+            try:
+                index = int(filename.split("_")[-1].split(".")[0])
+                func_name, time_str = line.strip().split(':')
+                func_name = func_name.strip().split('(')[0]
+                exec_time = float(time_str.strip().split()[0])
+                if func_name == "TOTAL_TIME" & exec_time > max_index:
+                    max_index = index
+            except ValueError:
+                print(f"Errore nel parsing della riga: '{line.strip()}'")
+
+# Leggi tutti i file di profiling
+for filename in glob.glob(f"profiling_rank_{max_index}.txt"):
     with open(filename) as f:
         for line in f:
             if ':' not in line:
@@ -57,7 +72,7 @@ for func, times in function_totals.items():
     elif (func == "compute_gradient "):
         comm_times = cg_comm_times
     else: comm_times = 0
-    output_lines.append(f"{func:<30}: {max_time:.4f} s (rank 0) -> {pct_total:.2f}% del wall-clock [whose {comm_times:.4f} s of communication]")
+    output_lines.append(f"{func:<30}: {max_time:.4f} s ({max_index}) -> {pct_total:.2f}% del wall-clock [whose {comm_times:.4f} s of communication]")
 
 # Stampa a console
 print("\n".join(output_lines))
