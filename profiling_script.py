@@ -22,7 +22,7 @@ for filename in glob.glob("profiling_rank_*.txt"):
                 func_name, time_str = line.strip().split(':')
                 func_name = func_name.strip().split('(')[0]
                 exec_time = float(time_str.strip().split()[0])
-                if func_name == "TOTAL_TIME" & exec_time > max_index:
+                if func_name == "TOTAL_TIME" and exec_time > max_index:
                     max_index = index
             except ValueError:
                 print(f"Errore nel parsing della riga: '{line.strip()}'")
