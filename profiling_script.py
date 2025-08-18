@@ -15,7 +15,7 @@ cg_comm_times = 0.0
 
 max_index = 0
 
-for filename in glob.glob("profiling_rank_*.txt"):
+for filename in glob.glob("/shared/profiling_rank_*.txt"):
     with open(filename) as f:
         for line in f:
             try:
@@ -29,7 +29,7 @@ for filename in glob.glob("profiling_rank_*.txt"):
                 print(f"Errore nel parsing della riga: '{line.strip()}'")
 
 # Read profiling for each rank
-filename = f"profiling_rank_{max_index}.txt"
+filename = f"/shared/profiling_rank_{max_index}.txt"
 with open(filename) as f:
     for line in f:
         if ':' not in line:
@@ -81,7 +81,7 @@ with open("profiling_summary.txt", "w") as out_f:
     out_f.write("\n".join(output_lines) + "\n")
 
 # Delete profiling files for next execution
-for filename in glob.glob("profiling_rank_*.txt"):
+for filename in glob.glob("/shared/profiling_rank_*.txt"):
     try:
         os.remove(filename)
         print(f"Rimosso: {filename}")
