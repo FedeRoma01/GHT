@@ -491,7 +491,8 @@ int main(int argc, char **argv) {
     char **file_list = NULL;
     if (rank == 0) {
         // SCENEs DISTRIBUTION
-        const char *dir_path = "resources/dataset/transformed_images_batch";
+        char *dir_path = malloc(MAX_FILENAME_LEN);
+        snprintf(dir_path, MAX_FILENAME_LEN, "%s%s", "resources/dataset/", argv[1]);
         const char *extension = ".pgm"; // includi il punto: es. ".pgm"
 
         // Apri la directory
