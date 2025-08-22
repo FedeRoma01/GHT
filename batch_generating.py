@@ -1,7 +1,10 @@
 import os
 import shutil
 
-def generate_image_sets(base_dir="dataset"):
+def generate_image_sets():
+  
+    base_dir = "resources"
+    dataset_dir = os.path.join(base_dir, "dataset")
 
     base_filenames = ["scene_key.pgm", "scene_key_rot90.pgm", "scene_key_rot180.pgm", "scene_key_rot270.pgm"]
 
@@ -9,14 +12,16 @@ def generate_image_sets(base_dir="dataset"):
 
     for img in base_images:
         if not os.path.exists(img):
-            raise FileNotFoundError(f"Immagine mancante: {img}")
+            raise FileNotFoundError(f"Missing specificated image: {img}")
 
-    print(f"Userò queste immagini di base: {base_filenames}")
+    print(f"Using the following images from '{base_dir}': {base_filenames}")
+
+    os.makedirs(dataset_dir, exist_ok=True)
 
     targets = [64, 128, 512, 1024]
 
     for target in targets:
-        set_dir = os.path.join(base_dir, f"set_{target}")
+        set_dir = os.path.join(dataset_dir, f"set_{target}")
         os.makedirs(set_dir, exist_ok=True)
 
         count = 0
@@ -29,7 +34,7 @@ def generate_image_sets(base_dir="dataset"):
                 shutil.copy(img, dst_path)
                 count += 1
 
-        print(f"Creato {set_dir} con {count} immagini.")
+        print(f"Created {set_dir} with {count} images.")
 
 if __name__ == "__main__":
     generate_image_sets()
