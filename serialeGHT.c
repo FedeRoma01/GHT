@@ -101,6 +101,7 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
 
     Point *detections = calloc(width * height, sizeof(Point)); // max one Point per cell
 
+    // Object detection
     for (int y = 1; y < height - 1; y++) {
         for (int x = 1; x < width - 1; x++) {
             int idx = y * width + x;
@@ -120,6 +121,7 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
         }
     }
 
+    // Peak detection
     int num_det = 0;
     for (int y = 0; y < acc_h; y++) {
         for (int x = 0; x < acc_w; x++) {

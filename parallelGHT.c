@@ -68,10 +68,12 @@ void compute_gradient_local(unsigned char *img, float *grad_x, float *grad_y, fl
     }
 }
 
-void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float *global_grad_y, float *global_magnitude, int width, int height, MPI_Comm comm) {
+void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float *global_grad_y, float *global_magnitude, int width, int height, MPI_Comm comm, FILE *profile_fp) {
     int rank, size;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
+
+    double timestamp_start, timestamp_end;
 
     int rows_per_proc = height / size;
     int extra = height % size;
@@ -95,10 +97,14 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
         displs[i] = (i == 0) ? 0 : displs[i-1] + sendcounts[i-1];
     }
 
+    timestamp_start = MPI_Wtime();
     MPI_Scatterv(global_img, sendcounts, displs, MPI_UNSIGNED_CHAR,
                  &local_img[width], local_height * width, MPI_UNSIGNED_CHAR,
                  0, comm);
-
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "MPI_Scatterv (CG): %.6f s\n", timestamp_end - timestamp_start);
+    
+    timestamp_start = MPI_Wtime();
     // Halo exchange
     if (rank > 0) {
         MPI_Sendrecv(&local_img[width], width, MPI_UNSIGNED_CHAR, rank-1, 0,
@@ -110,17 +116,22 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
                      &local_img[(local_height + 1) * width], width, MPI_UNSIGNED_CHAR, rank+1, 0,
                      comm, MPI_STATUS_IGNORE);
     }
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "MPI_Sendrecv (CG): %.6f s\n", timestamp_end - timestamp_start);
 
     // Computazione sul blocco (escludendo le righe halo)
     compute_gradient_local(local_img, local_grad_x, local_grad_y, local_magnitude, width, buffer_height);
 
     // Riduci al blocco reale
+    timestamp_start = MPI_Wtime();
     MPI_Gatherv(&local_grad_x[width], local_height * width, MPI_FLOAT,
                 global_grad_x, sendcounts, displs, MPI_FLOAT, 0, comm);
     MPI_Gatherv(&local_grad_y[width], local_height * width, MPI_FLOAT,
                 global_grad_y, sendcounts, displs, MPI_FLOAT, 0, comm);
     MPI_Gatherv(&local_magnitude[width], local_height * width, MPI_FLOAT,
                 global_magnitude, sendcounts, displs, MPI_FLOAT, 0, comm);
+    timestamp_end = MPI_Wtime();
+    fprintf(profile_fp, "MPI_Gatherv (CG): %.6f s\n", timestamp_end - timestamp_start);
 
     free(local_img);
     free(local_grad_x);
@@ -188,7 +199,7 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
     timestamp_start = MPI_Wtime();
     MPI_Reduce(local_accumulator, global_accumulator, acc_w * acc_h, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     timestamp_end = MPI_Wtime();
-    fprintf(profile_fp, "MPI_Reduce: %.6f s\n", timestamp_end - timestamp_start);
+    fprintf(profile_fp, "MPI_Reduce (GH): %.6f s\n", timestamp_end - timestamp_start);
 
     int num_det = 0;
     if (rank == 0) {
@@ -385,14 +396,16 @@ int main(int argc, char **argv) {
     unsigned char *scene_img = NULL;
     if (rank == 0) scene_img = load_image_dynamic("resources/scene_key.pgm", &scene_w, &scene_h);
 
+    int scene_dims[2];
+    if (rank == 0) { scene_dims[0] = scene_w; scene_dims[1] = scene_h; }
     timestamp_start = MPI_Wtime();
-    MPI_Bcast(&scene_w, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&scene_h, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(scene_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+    scene_w = scene_dims[0]; scene_h = scene_dims[1];
 
     int scene_size = scene_w * scene_h;
-    if (rank != 0) scene_img = malloc(scene_size);
+    //if (rank != 0) scene_img = malloc(scene_size);
 
     int rows_per_proc = scene_h / size;
     int extra = scene_h % size;
@@ -407,16 +420,41 @@ int main(int argc, char **argv) {
     unsigned char *edges = malloc(scene_size);
 
     timestamp_start = MPI_Wtime();
-    compute_gradient_mpi(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h, MPI_COMM_WORLD);
+    compute_gradient_mpi(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h, MPI_COMM_WORLD, profile_fp);
     timestamp_end = MPI_Wtime(); 
     fprintf(profile_fp, "compute_gradient (scene): %.6f s\n", timestamp_end - timestamp_start);
 
-    timestamp_start = MPI_Wtime();
-    MPI_Bcast(grad_x, scene_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(grad_y, scene_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(magnitude, scene_size, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    // Bcast gradients for parallelized generalized_hough
+    // Creazione del tipo derivato per i tre array
+    MPI_Datatype gradient_type;
+    int blocklengths[3] = {scene_size, scene_size, scene_size};
+    MPI_Aint displs[3];
+    MPI_Datatype types[3] = {MPI_FLOAT, MPI_FLOAT, MPI_FLOAT};
+
+    // Calcolo degli indirizzi relativi
+    MPI_Aint base_addr;
+    MPI_Get_address(grad_x, &base_addr);
+    MPI_Get_address(grad_x, &displs[0]);
+    MPI_Get_address(grad_y, &displs[1]);
+    MPI_Get_address(magnitude, &displs[2]);
+
+    for (int i = 0; i < 3; i++) {
+        displs[i] = displs[i] - base_addr;
+    }
+
+    MPI_Type_create_struct(3, blocklengths, displs, types, &gradient_type);
+    MPI_Type_commit(&gradient_type);
+
+    // Broadcast unico
+    MPI_Bcast(grad_x, 1, gradient_type, 0, MPI_COMM_WORLD);
+
+    // Pulizia del tipo derivato
+    MPI_Type_free(&gradient_type);
+
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+
+    // end Bcast of gradients
 
     timestamp_start = MPI_Wtime();
     detect_edges(magnitude, edges, scene_w, scene_h);
@@ -439,13 +477,6 @@ int main(int argc, char **argv) {
         fprintf(profile_fp, "load_image_dynamic: %.6f s\n", timestamp_end - timestamp_start);
     }
 
-    timestamp_start = MPI_Wtime();
-    MPI_Bcast(&tw, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&th, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    timestamp_end = MPI_Wtime();
-    fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
-
-
     for (int ai = 0; ai < NUM_ANGLES; ai++) {
 
         unsigned char *rotated = NULL;
@@ -459,11 +490,13 @@ int main(int argc, char **argv) {
             fprintf(profile_fp, "rotate_image_nearest_neighbor_expand: %.6f s\n", timestamp_end - timestamp_start);
         }
 
+        int templ_dims[2];
+        if (rank == 0) { templ_dims[0]= tw; templ_dims[1]= th; }
         timestamp_start = MPI_Wtime();
-        MPI_Bcast(&tw, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&th, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(templ_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+        tw = templ_dims[0]; th = templ_dims[1];
 
         float *tgrad_x = malloc(tw * th * sizeof(float));
         float *tgrad_y = malloc(tw * th * sizeof(float));
@@ -471,7 +504,7 @@ int main(int argc, char **argv) {
         unsigned char *tedges = malloc(tw * th * sizeof(unsigned char));
 
         timestamp_start = MPI_Wtime();
-        compute_gradient_mpi(rotated, tgrad_x, tgrad_y, tmagnitude, tw, th, MPI_COMM_WORLD);
+        compute_gradient_mpi(rotated, tgrad_x, tgrad_y, tmagnitude, tw, th, MPI_COMM_WORLD, profile_fp);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "compute_gradient (a=%.0f): %.6f s\n", angles[ai], timestamp_end - timestamp_start);
 

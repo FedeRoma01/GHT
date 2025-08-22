@@ -13,7 +13,7 @@
 #define NUM_ANGLES 4
 #define MAX_O_X_BIN 100
 #define MAX_FILENAME_LEN 256
-#define MAX_FILES 64
+#define MAX_FILES 512
 
 typedef struct {
     int dx, dy;

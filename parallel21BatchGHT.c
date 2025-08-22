@@ -490,7 +490,7 @@ int main(int argc, char **argv) {
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
-    // Iterating on found files
+    // Iterating on found image files
     for (int i = 0; i < num_files; i++) {
 
         int scene_w = 0, scene_h = 0;

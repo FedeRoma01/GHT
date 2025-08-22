@@ -293,9 +293,7 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
 
     int rows_per_proc = height / size;
     int extra = height % size;
-
     int local_height = rows_per_proc + (rank < extra ? 1 : 0);
-    int start_row = rank * rows_per_proc + (rank < extra ? rank : extra);
 
     // Aggiungi 2 righe per halo (una sopra e una sotto, se servono)
     int buffer_height = local_height + 2;
@@ -414,20 +412,12 @@ int main(int argc, char **argv) {
         fprintf(profile_fp, "load_image_dynamic: %.6f s\n", timestamp_end - timestamp_start);
     }
 
-    int templ_dims[2];
-    if (rank==0) { templ_dims[0]=tw; templ_dims[1]=th; }
-    timestamp_start = MPI_Wtime();
-    MPI_Bcast(templ_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
-    timestamp_end = MPI_Wtime();
-    fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
-    tw=templ_dims[0]; th=templ_dims[1];
-
     float angles[NUM_ANGLES];
     for (int a = 0; a < NUM_ANGLES; a++) angles[a] = a * (360.0 / NUM_ANGLES);
     
 
-    for (int ai=0; ai<NUM_ANGLES; ai++) {
-        if (rank == 0) {
+    if (rank == 0) {
+        for (int ai=0; ai<NUM_ANGLES; ai++) {
             unsigned char *rotated=NULL;
             int rtw=tw, rth=th;
 

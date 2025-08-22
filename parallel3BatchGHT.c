@@ -15,7 +15,7 @@
 #define NUM_ANGLES 4
 #define MAX_O_X_BIN 100
 #define MAX_FILENAME_LEN 256
-#define MAX_FILES 64
+#define MAX_FILES 512
 
 typedef struct {
     int dx, dy;
@@ -419,12 +419,6 @@ int main(int argc, char **argv) {
         fprintf(profile_fp, "load_image_dynamic: %.6f s\n", timestamp_end - timestamp_start);
     }
 
-    timestamp_start = MPI_Wtime();
-    MPI_Bcast(&tw, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&th, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    timestamp_end = MPI_Wtime();
-    fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
-
     float angles[NUM_ANGLES];
     for (int a = 0; a < NUM_ANGLES; a++) angles[a] = a * (360.0 / NUM_ANGLES);
 
@@ -444,11 +438,13 @@ int main(int argc, char **argv) {
             fprintf(profile_fp, "rotate_image_nearest_neighbor_expand: %.6f s\n", timestamp_end - timestamp_start);
         }
 
+        int templ_i_dims[2];
+        if (rank == 0) { templ_i_dims[0]= tw_i; templ_i_dims[1]= th_i; }
         timestamp_start = MPI_Wtime();
-        MPI_Bcast(&tw_i, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&th_i, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(templ_i_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+        tw_i = templ_i_dims[0]; th_i = templ_i_dims[1];
 
         float *tgrad_x = malloc(tw_i * th_i * sizeof(float));
         float *tgrad_y = malloc(tw_i * th_i * sizeof(float));
@@ -460,12 +456,39 @@ int main(int argc, char **argv) {
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "compute_gradient (a=%.0f): %.6f s\n", angle, timestamp_end - timestamp_start);
 
-        timestamp_start = MPI_Wtime();
-        MPI_Bcast(tgrad_x, tw_i * th_i, MPI_FLOAT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(tgrad_y, tw_i * th_i, MPI_FLOAT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(tmagnitude, tw_i * th_i, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        int scene_i_size = tw_i * th_i;
+
+        // Bcast gradients for single generalized_hough
+        // Creazione del tipo derivato per i tre array
+        MPI_Datatype tgradient_type;
+        int blocklengths[3] = {scene_i_size, scene_i_size, scene_i_size};
+        MPI_Aint displs[3];
+        MPI_Datatype types[3] = {MPI_FLOAT, MPI_FLOAT, MPI_FLOAT};
+
+        // Calcolo degli indirizzi relativi
+        MPI_Aint base_addr;
+        MPI_Get_address(tgrad_x, &base_addr);
+        MPI_Get_address(tgrad_x, &displs[0]);
+        MPI_Get_address(tgrad_y, &displs[1]);
+        MPI_Get_address(tmagnitude, &displs[2]);
+
+        for (int i = 0; i < 3; i++) {
+            displs[i] = displs[i] - base_addr;
+        }
+
+        MPI_Type_create_struct(3, blocklengths, displs, types, &tgradient_type);
+        MPI_Type_commit(&tgradient_type);
+
+        // Broadcast unico
+        MPI_Bcast(tgrad_x, 1, tgradient_type, 0, MPI_COMM_WORLD);
+
+        // Pulizia del tipo derivato
+        MPI_Type_free(&tgradient_type);
+
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+
+        // end Bcast of gradients
 
         timestamp_start = MPI_Wtime();
         detect_edges(tmagnitude, tedges, tw_i, th_i);
@@ -477,12 +500,12 @@ int main(int argc, char **argv) {
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "build_lookup_table (a=%.0f): %.6f s\n", angle, timestamp_end - timestamp_start);
 
-        /*
+        
         if (rank == 0) {
             char name[128];
             snprintf(name, sizeof(name), "edges_a%.0f.pgm", angles[a]);
             save_edges_pgm(name, tedges, tw_i, th_i);
-        }*/
+        }
 
         free(rotated);
         free(tgrad_x); free(tgrad_y); free(tmagnitude); free(tedges);
@@ -629,7 +652,7 @@ int main(int argc, char **argv) {
         detect_edges(magnitude, edges, scene_w, scene_h);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "detect_edges (scene): %.6f s\n", timestamp_end - timestamp_start);
-        // save_edges_pgm("scene_edges.pgm", edges, scene_w, scene_h);
+        // if (rank == 0) save_edges_pgm("scene_edges.pgm", edges, scene_w, scene_h);
 
         for (int ai = 0; ai < NUM_ANGLES; ai++) {
 

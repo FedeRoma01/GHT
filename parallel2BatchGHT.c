@@ -15,7 +15,7 @@
 #define NUM_ANGLES 4
 #define MAX_O_X_BIN 100
 #define MAX_FILENAME_LEN 256
-#define MAX_FILES 64
+#define MAX_FILES 512
 
 typedef struct {
     int dx, dy;
@@ -91,7 +91,6 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
     int extra = height % size;
 
     int local_height = rows_per_proc + (rank < extra ? 1 : 0);
-    int start_row = rank * rows_per_proc + (rank < extra ? rank : extra);
 
     // Aggiungi 2 righe per halo (una sopra e una sotto, se servono)
     int buffer_height = local_height + 2;
@@ -439,11 +438,13 @@ int main(int argc, char **argv) {
             fprintf(profile_fp, "rotate_image_nearest_neighbor_expand: %.6f s\n", timestamp_end - timestamp_start);
         }
 
+        int templ_i_dims[2];
+        if (rank == 0) { templ_i_dims[0]= tw_i; templ_i_dims[1]= th_i; }
         timestamp_start = MPI_Wtime();
-        MPI_Bcast(&tw_i, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&th_i, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(templ_i_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+        tw_i = templ_i_dims[0]; th_i = templ_i_dims[1];
 
         float *tgrad_x = malloc(tw_i * th_i * sizeof(float));
         float *tgrad_y = malloc(tw_i * th_i * sizeof(float));
@@ -536,20 +537,15 @@ int main(int argc, char **argv) {
             scene_img = load_image_dynamic(fname, &scene_w, &scene_h);
         }
 
+        int scene_dims[2];
+        if (rank == 0) { scene_dims[0] = scene_w; scene_dims[1] = scene_h; }
         timestamp_start = MPI_Wtime();
-        MPI_Bcast(&scene_w, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&scene_h, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(scene_dims, 2, MPI_INT, 0, MPI_COMM_WORLD);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
+        scene_w = scene_dims[0]; scene_h = scene_dims[1];
 
         int scene_size = scene_w * scene_h;
-
-        int rows_per_proc = scene_h / size;
-        int extra = scene_h % size;
-
-        int local_height = rows_per_proc + (rank < extra ? 1 : 0);
-        int start_row = rank * rows_per_proc + (rank < extra ? rank : extra);
-        int end_row = start_row + local_height;
 
         float *grad_x = malloc(scene_size * sizeof(float));
         float *grad_y = malloc(scene_size * sizeof(float));
