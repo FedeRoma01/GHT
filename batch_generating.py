@@ -18,7 +18,7 @@ def generate_image_sets():
 
     os.makedirs(dataset_dir, exist_ok=True)
 
-    targets = [64, 128, 512, 1024]
+    targets = [64, 128, 256, 512, 1024]
 
     for target in targets:
         set_dir = os.path.join(dataset_dir, f"set_{target}")
