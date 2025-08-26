@@ -20,6 +20,7 @@ typedef struct {
     int y;
 } Point;
 
+// Look-up table structure
 Offset lookup_table[ANGLE_BINS][MAX_O_X_BIN];
 int lookup_count[ANGLE_BINS] = {0};
 
@@ -170,7 +171,7 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     float cos_theta = cos(angle_radians);
     float sin_theta = sin(angle_radians);
 
-    // Calcolo bounding box ruotata
+    // Compute ruotated bounding box
     float corners_x[4] = { -width / 2.0f,  width / 2.0f,  width / 2.0f, -width / 2.0f };
     float corners_y[4] = { -height / 2.0f, -height / 2.0f, height / 2.0f,  height / 2.0f };
 
@@ -188,14 +189,14 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     *new_width  = (int)(ceil(max_x - min_x));
     *new_height = (int)(ceil(max_y - min_y));
 
-    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // fondo nero
+    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // black background
 
     int cx_src = width / 2;
     int cy_src = height / 2;
     int cx_dst = *new_width / 2;
     int cy_dst = *new_height / 2;
 
-    // Offset di riallineamento per mantenere il centro originale
+    // Realignment offset to maintain the original center
     float offset_x = cx_dst - (cos_theta * cx_src - sin_theta * cy_src);
     float offset_y = cy_dst - (sin_theta * cx_src + cos_theta * cy_src);
 
@@ -294,6 +295,7 @@ void save_edges_pgm(const char *filename, unsigned char *edges, int width, int h
 int main(int argc, char **argv) {
     int rank, size;
 
+    // Scene loading
     int scene_w = 0, scene_h = 0;
     unsigned char *scene_img = load_image_dynamic("resources/scene_key.pgm", &scene_w, &scene_h);
     int scene_size = scene_w * scene_h;
@@ -303,6 +305,7 @@ int main(int argc, char **argv) {
     float *magnitude = malloc(scene_size * sizeof(float));
     unsigned char *edges = malloc(scene_size);
 
+    // Scene edge detection
     compute_gradient(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h);
     detect_edges(magnitude, edges, scene_w, scene_h);
 
@@ -313,9 +316,10 @@ int main(int argc, char **argv) {
 
     int tw = 0, th = 0;
 
-    // TEMPLATE LOADING
+    // Template loading
     unsigned char *template_img = load_image_dynamic("resources/templ_key.pgm", &tw, &th);
 
+    // Creation of different template by ruotating the loaded template
     for (int ai = 0; ai < NUM_ANGLES; ai++) {
         int x = tw;
         int y = th;
@@ -326,8 +330,11 @@ int main(int argc, char **argv) {
         float *tmagnitude = malloc(tw * th * sizeof(float));
         unsigned char *tedges = malloc(tw * th * sizeof(unsigned char));
 
+        // Template edge detection
         compute_gradient(rotated, tgrad_x, tgrad_y, tmagnitude, tw, th);
         detect_edges(tmagnitude, tedges, tw, th);
+
+        // Look-up table for ruotated template
         build_lookup_table(tedges, tgrad_x, tgrad_y, tw, th);
 
         // edge template saving (decomment if needed)
@@ -340,8 +347,11 @@ int main(int argc, char **argv) {
 
         Point *finalDetections = NULL;
         int detectionsCounter = 0;
+
+        // Voting phase
         generalized_hough(edges, grad_x, grad_y, scene_w, scene_h, &finalDetections, &detectionsCounter);
 
+        // If something valid is detected -> save overlay detection
         if (detectionsCounter > 0) {
         
             char fname[128];

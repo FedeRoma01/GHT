@@ -9,7 +9,7 @@
 #define DP 2
 #define MIN_DISTANCE 80
 #define GRADIENT_THRESHOLD 100
-#define VOTE_THRESHOLD 300 //30 key, 250 cluttered_desk
+#define VOTE_THRESHOLD 300
 #define NUM_ANGLES 4
 #define MAX_O_X_BIN 100
 #define MAX_FILENAME_LEN 256
@@ -25,13 +25,14 @@ typedef struct {
 } Point;
 
 typedef struct {
-    Offset table[ANGLE_BINS][MAX_O_X_BIN]; // 2D array: bin → lista di offset
-    int count[ANGLE_BINS];                 // numero di offset per ogni bin
-    float angle;                           // rotazione in gradi
+    Offset table[ANGLE_BINS][MAX_O_X_BIN]; // 2D array: bin → offset list
+    int count[ANGLE_BINS];                 // number of offset for each bin
+    float angle;                           // rotation (degree)
     int tw;
     int th;
 } LookupTable;
 
+// Look-up table structure
 LookupTable *lookup_tables;
 
 unsigned char* load_image_dynamic(const char *filename, int *width, int *height) {
@@ -118,6 +119,7 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
 
     LookupTable *lt = &lookup_tables[ai];
 
+    // Object detection
     for (int y = 1; y < height - 1; y++) {
         for (int x = 1; x < width - 1; x++) {
             int idx = y * width + x;
@@ -137,44 +139,45 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
         }
     }
 
+    // Peak detection
     int num_det = 0;
-        for (int y = 0; y < acc_h; y++) {
-            for (int x = 0; x < acc_w; x++) {
-                if (local_accumulator[y * acc_w + x] > VOTE_THRESHOLD) {
-                    detections[num_det].x = x * DP;
-                    detections[num_det].y = y * DP;
-                    num_det++;
+    for (int y = 0; y < acc_h; y++) {
+        for (int x = 0; x < acc_w; x++) {
+            if (local_accumulator[y * acc_w + x] > VOTE_THRESHOLD) {
+                detections[num_det].x = x * DP;
+                detections[num_det].y = y * DP;
+                num_det++;
+            }
+        }
+    }
+
+    // Non-Maximum Suppression
+    *finalDetections = calloc(num_det, sizeof(Point));
+    int finalCount = 0;
+
+    for (int i = 0; i < num_det; i++) {
+        int isMax = 1;
+        for (int j = 0; j < num_det; j++) {
+            if (i == j) continue;
+
+            int dx = detections[i].x - detections[j].x;
+            int dy = detections[i].y - detections[j].y;
+            float distance = sqrtf(dx * dx + dy * dy);
+
+            if (distance < MIN_DISTANCE) {
+                int acc_i = local_accumulator[(detections[i].y / DP) * acc_w + (detections[i].x / DP)];
+                int acc_j = local_accumulator[(detections[j].y / DP) * acc_w + (detections[j].x / DP)];
+                if (acc_i < acc_j) {
+                    isMax = 0;
+                    break;
                 }
             }
         }
-
-        // Non-Maximum Suppression
-        *finalDetections = calloc(num_det, sizeof(Point));
-        int finalCount = 0;
-
-        for (int i = 0; i < num_det; i++) {
-            int isMax = 1;
-            for (int j = 0; j < num_det; j++) {
-                if (i == j) continue;
-
-                int dx = detections[i].x - detections[j].x;
-                int dy = detections[i].y - detections[j].y;
-                float distance = sqrtf(dx * dx + dy * dy);
-
-                if (distance < MIN_DISTANCE) {
-                    int acc_i = local_accumulator[(detections[i].y / DP) * acc_w + (detections[i].x / DP)];
-                    int acc_j = local_accumulator[(detections[j].y / DP) * acc_w + (detections[j].x / DP)];
-                    if (acc_i < acc_j) {
-                        isMax = 0;
-                        break;
-                    }
-                }
-            }
-            if (isMax) {
-                (*finalDetections)[finalCount++] = detections[i];
-            }
+        if (isMax) {
+            (*finalDetections)[finalCount++] = detections[i];
         }
-        *detectionsCounter = finalCount; 
+    }
+    *detectionsCounter = finalCount; 
 
     free(local_accumulator);
     free(detections);
@@ -185,7 +188,7 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     float cos_theta = cos(angle_radians);
     float sin_theta = sin(angle_radians);
 
-    // Calcolo bounding box ruotata
+    // // Compute ruotated bounding box
     float corners_x[4] = { -width / 2.0f,  width / 2.0f,  width / 2.0f, -width / 2.0f };
     float corners_y[4] = { -height / 2.0f, -height / 2.0f, height / 2.0f,  height / 2.0f };
 
@@ -203,14 +206,14 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     *new_width  = (int)(ceil(max_x - min_x));
     *new_height = (int)(ceil(max_y - min_y));
 
-    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // fondo nero
+    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // black background
 
     int cx_src = width / 2;
     int cy_src = height / 2;
     int cx_dst = *new_width / 2;
     int cy_dst = *new_height / 2;
 
-    // Offset di riallineamento per mantenere il centro originale
+    // Realignment offset to maintain the original center
     float offset_x = cx_dst - (cos_theta * cx_src - sin_theta * cy_src);
     float offset_y = cy_dst - (sin_theta * cx_src + cos_theta * cy_src);
 
@@ -294,10 +297,10 @@ void save_edges_pgm(const char *filename, unsigned char *edges, int width, int h
         return;
     }
 
-    // Scrivo l'intestazione PGM (P5 indica formato binario)
+    // PGM heading (P5 binary format)
     fprintf(fp, "P5\n%d %d\n255\n", width, height);
 
-    // Scrivo i dati dell'immagine (pixel)
+    // Write image pixels
     size_t written = fwrite(edges, sizeof(unsigned char), width * height, fp);
     if (written != width * height) {
         fprintf(stderr, "Warning: wrote only %zu bytes (expected %d)\n", written, width * height);
@@ -313,18 +316,17 @@ const char* get_extension(const char *filename) {
 
 int main(int argc, char **argv) {
 
+    // File list recovering
     char *dir_path = malloc(MAX_FILENAME_LEN);
     snprintf(dir_path, MAX_FILENAME_LEN, "%s%s", "resources/dataset/", argv[1]);
-    const char *extension = ".pgm"; // includi il punto: es. ".pgm"
+    const char *extension = ".pgm";
 
-    // Apri la directory
     DIR *dir = opendir(dir_path);
     if (!dir) {
         perror("opendir");
         return EXIT_FAILURE;
     }
 
-    // Array dinamico di nomi di file
     char **file_list = malloc(MAX_FILES * sizeof(char *));
     int num_files = 0;
 
@@ -347,11 +349,11 @@ int main(int argc, char **argv) {
 
     int twi = 0, thi = 0;
 
-    // TEMPLATE LOADING
+    // Template loading
     unsigned char *template_img = load_image_dynamic("resources/templ_key.pgm", &twi, &thi);
     lookup_tables = malloc(NUM_ANGLES * sizeof(LookupTable));
 
-    // PRE-COMPUTING LOOKUP TABLES
+    // Pre-computing look-up tables
     for (int a = 0; a < NUM_ANGLES; a++) {
 
         float angle = angles[a];
@@ -365,16 +367,18 @@ int main(int argc, char **argv) {
         float *tmagnitude = malloc(tw * th * sizeof(float));
         unsigned char *tedges = malloc(tw * th * sizeof(unsigned char));
 
+        // Template edge detection
         compute_gradient(rotated, tgrad_x, tgrad_y, tmagnitude, tw, th);
 
         detect_edges(tmagnitude, tedges, tw, th);
 
+        // Look-up table for ruotated template
         build_lookup_table(tedges, tgrad_x, tgrad_y, tw, th, &lookup_tables[a]);
 
         // Edges images saving (decomment if needed)
-        char name[128];
-        snprintf(name, sizeof(name), "edges_a%.0f.pgm", angles[a]);
-        save_edges_pgm(name, tedges, tw, th);
+        //char name[128];
+        //snprintf(name, sizeof(name), "edges_a%.0f.pgm", angles[a]);
+        //save_edges_pgm(name, tedges, tw, th);
 
         free(rotated);
         free(tgrad_x); free(tgrad_y); free(tmagnitude); free(tedges);
@@ -383,11 +387,12 @@ int main(int argc, char **argv) {
 
     free(template_img);
 
-    // Iterating on scenes
+    // Iterating on scenes list
     for (int i = 0; i < num_files; i++) {
 
         const char *fname = file_list[i];
 
+        // Scene loading
         int scene_w = 0, scene_h = 0;
         unsigned char *scene_img = load_image_dynamic(fname, &scene_w, &scene_h);
         int scene_size = scene_w * scene_h;
@@ -397,6 +402,7 @@ int main(int argc, char **argv) {
         float *magnitude = malloc(scene_size * sizeof(float));
         unsigned char *edges = malloc(scene_size);
 
+        // Scene edge detection
         compute_gradient(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h);
         detect_edges(magnitude, edges, scene_w, scene_h);
 
@@ -407,8 +413,11 @@ int main(int argc, char **argv) {
 
             Point *finalDetections = NULL;
             int detectionsCounter = 0;
+
+            // Voting phase
             generalized_hough(edges, grad_x, grad_y, scene_w, scene_h, &finalDetections, &detectionsCounter, ai);
 
+            // If something valid is detected -> save overlay detection
             if (detectionsCounter > 0) {
 
                 char fname[128];

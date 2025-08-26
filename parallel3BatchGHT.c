@@ -27,9 +27,9 @@ typedef struct {
 } Point;
 
 typedef struct {
-    Offset table[ANGLE_BINS][MAX_O_X_BIN]; // 2D array: bin → lista di offset
-    int count[ANGLE_BINS];                 // numero di offset per ogni bin
-    float angle;                           // rotazione in gradi
+    Offset table[ANGLE_BINS][MAX_O_X_BIN]; // 2D array: bin → offset list
+    int count[ANGLE_BINS];                 // number of offset for each bin
+    float angle;                           // rotation (degree)
     int tw;
     int th;                           
 } LookupTable;
@@ -98,14 +98,14 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
     int local_height = rows_per_proc + (rank < extra ? 1 : 0);
     int start_row = rank * rows_per_proc + (rank < extra ? rank : extra);
 
-    // Aggiungi 2 righe per halo (una sopra e una sotto, se servono)
+    // // Add 2 rows for halo
     int buffer_height = local_height + 2;
     unsigned char *local_img = calloc(buffer_height * width, sizeof(unsigned char));
     float *local_grad_x = calloc(buffer_height * width, sizeof(float));
     float *local_grad_y = calloc(buffer_height * width, sizeof(float));
     float *local_magnitude = calloc(buffer_height * width, sizeof(float));
 
-    // Scatterv manuale (più flessibile)
+    // Manual Scatterv (more flexible)
     int *sendcounts = calloc(size, sizeof(int));
     int *displs = calloc(size, sizeof(int));
     for (int i = 0; i < size; i++) {
@@ -136,11 +136,11 @@ void compute_gradient_mpi(unsigned char *global_img, float *global_grad_x, float
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Sendrecv (CG): %.6f s\n", timestamp_end - timestamp_start);
 
-    // Computazione sul blocco (escludendo le righe halo)
+    // Computation on the assigned block (halo rows considered only for boundary rows)
     compute_gradient(local_img, local_grad_x, local_grad_y, local_magnitude, width, buffer_height, 0);
 
     timestamp_start = MPI_Wtime();
-    // Riduci al blocco reale
+    // Reduce to the real block
     MPI_Gatherv(&local_grad_x[width], local_height * width, MPI_FLOAT,
                 global_grad_x, sendcounts, displs, MPI_FLOAT, 0, comm);
     MPI_Gatherv(&local_grad_y[width], local_height * width, MPI_FLOAT,
@@ -214,44 +214,45 @@ void generalized_hough(unsigned char *edges, float *grad_x, float *grad_y, int w
         }
     }
 
+    // Peak detection
     int num_det = 0;
-        for (int y = 0; y < acc_h; y++) {
-            for (int x = 0; x < acc_w; x++) {
-                if (local_accumulator[y * acc_w + x] > VOTE_THRESHOLD) {
-                    detections[num_det].x = x * DP;
-                    detections[num_det].y = y * DP;
-                    num_det++;
+    for (int y = 0; y < acc_h; y++) {
+        for (int x = 0; x < acc_w; x++) {
+            if (local_accumulator[y * acc_w + x] > VOTE_THRESHOLD) {
+                detections[num_det].x = x * DP;
+                detections[num_det].y = y * DP;
+                num_det++;
+            }
+        }
+    }
+
+    // Non-Maximum Suppression
+    *finalDetections = calloc(num_det, sizeof(Point));
+    int finalCount = 0;
+
+    for (int i = 0; i < num_det; i++) {
+        int isMax = 1;
+        for (int j = 0; j < num_det; j++) {
+            if (i == j) continue;
+
+            int dx = detections[i].x - detections[j].x;
+            int dy = detections[i].y - detections[j].y;
+            float distance = sqrtf(dx * dx + dy * dy);
+
+            if (distance < MIN_DISTANCE) {
+                int acc_i = local_accumulator[(detections[i].y / DP) * acc_w + (detections[i].x / DP)];
+                int acc_j = local_accumulator[(detections[j].y / DP) * acc_w + (detections[j].x / DP)];
+                if (acc_i < acc_j) {
+                    isMax = 0;
+                    break;
                 }
             }
         }
-
-        // Non-Maximum Suppression
-        *finalDetections = calloc(num_det, sizeof(Point));
-        int finalCount = 0;
-
-        for (int i = 0; i < num_det; i++) {
-            int isMax = 1;
-            for (int j = 0; j < num_det; j++) {
-                if (i == j) continue;
-
-                int dx = detections[i].x - detections[j].x;
-                int dy = detections[i].y - detections[j].y;
-                float distance = sqrtf(dx * dx + dy * dy);
-
-                if (distance < MIN_DISTANCE) {
-                    int acc_i = local_accumulator[(detections[i].y / DP) * acc_w + (detections[i].x / DP)];
-                    int acc_j = local_accumulator[(detections[j].y / DP) * acc_w + (detections[j].x / DP)];
-                    if (acc_i < acc_j) {
-                        isMax = 0;
-                        break;
-                    }
-                }
-            }
-            if (isMax) {
-                (*finalDetections)[finalCount++] = detections[i];
-            }
+        if (isMax) {
+            (*finalDetections)[finalCount++] = detections[i];
         }
-        *detectionsCounter = finalCount; 
+    }
+    *detectionsCounter = finalCount; 
 
     free(local_accumulator);
     free(detections);
@@ -262,7 +263,7 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     float cos_theta = cos(angle_radians);
     float sin_theta = sin(angle_radians);
 
-    // Calcolo bounding box ruotata
+    // Compute ruotated bounding box
     float corners_x[4] = { -width / 2.0f,  width / 2.0f,  width / 2.0f, -width / 2.0f };
     float corners_y[4] = { -height / 2.0f, -height / 2.0f, height / 2.0f,  height / 2.0f };
 
@@ -280,14 +281,14 @@ unsigned char* rotate_image_nearest_neighbor_expand(unsigned char *src, int widt
     *new_width  = (int)(ceil(max_x - min_x));
     *new_height = (int)(ceil(max_y - min_y));
 
-    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // fondo nero
+    unsigned char *dst = calloc((*new_width) * (*new_height), sizeof(unsigned char)); // black blackground
 
     int cx_src = width / 2;
     int cy_src = height / 2;
     int cx_dst = *new_width / 2;
     int cy_dst = *new_height / 2;
 
-    // Offset di riallineamento per mantenere il centro originale
+    // Realignment offset to maintain the original center
     float offset_x = cx_dst - (cos_theta * cx_src - sin_theta * cy_src);
     float offset_y = cy_dst - (sin_theta * cx_src + cos_theta * cy_src);
 
@@ -371,10 +372,10 @@ void save_edges_pgm(const char *filename, unsigned char *edges, int width, int h
         return;
     }
 
-    // Scrivo l'intestazione PGM (P5 formato binario)
+    // PGM heading (P5 binary format)
     fprintf(fp, "P5\n%d %d\n255\n", width, height);
 
-    // Scrivo i dati dell'immagine (pixel)
+    // Write image pixels
     size_t written = fwrite(edges, sizeof(unsigned char), width * height, fp);
     if (written != width * height) {
         fprintf(stderr, "Warning: wrote only %zu bytes (expected %d)\n", written, width * height);
@@ -410,7 +411,7 @@ int main(int argc, char **argv) {
     int tw = 0, th = 0;
     lookup_tables = malloc(NUM_ANGLES * sizeof(LookupTable));
 
-    // TEMPLATE LOADING
+    // Template loading
     unsigned char *template_img = NULL;
     if (rank == 0) {
         timestamp_start = MPI_Wtime();
@@ -422,7 +423,7 @@ int main(int argc, char **argv) {
     float angles[NUM_ANGLES];
     for (int a = 0; a < NUM_ANGLES; a++) angles[a] = a * (360.0 / NUM_ANGLES);
 
-    // PRE-PROCESSING LOOKUP TABLES
+    // Pre-processing look-up tables
     for (int a = 0; a < NUM_ANGLES; a++) {
         float angle = angles[a];
         unsigned char *rotated = NULL;
@@ -451,6 +452,7 @@ int main(int argc, char **argv) {
         float *tmagnitude = malloc(tw_i * th_i * sizeof(float));
         unsigned char *tedges = malloc(tw_i * th_i * sizeof(unsigned char));
 
+        // Template gradient computation parallelized
         timestamp_start = MPI_Wtime();
         compute_gradient_mpi(rotated, tgrad_x, tgrad_y, tmagnitude, tw_i, th_i, MPI_COMM_WORLD, profile_fp);
         timestamp_end = MPI_Wtime();
@@ -459,13 +461,14 @@ int main(int argc, char **argv) {
         int scene_i_size = tw_i * th_i;
 
         // Bcast gradients for single generalized_hough
-        // Creazione del tipo derivato per i tre array
+
+        // Creating the derived type for the three arrays
         MPI_Datatype tgradient_type;
         int blocklengths[3] = {scene_i_size, scene_i_size, scene_i_size};
         MPI_Aint displs[3];
         MPI_Datatype types[3] = {MPI_FLOAT, MPI_FLOAT, MPI_FLOAT};
 
-        // Calcolo degli indirizzi relativi
+        // Calculating relative addresses
         MPI_Aint base_addr;
         MPI_Get_address(tgrad_x, &base_addr);
         MPI_Get_address(tgrad_x, &displs[0]);
@@ -479,10 +482,9 @@ int main(int argc, char **argv) {
         MPI_Type_create_struct(3, blocklengths, displs, types, &tgradient_type);
         MPI_Type_commit(&tgradient_type);
 
-        // Broadcast unico
+        // Unique Broadcast
         MPI_Bcast(tgrad_x, 1, tgradient_type, 0, MPI_COMM_WORLD);
 
-        // Pulizia del tipo derivato
         MPI_Type_free(&tgradient_type);
 
         timestamp_end = MPI_Wtime();
@@ -490,11 +492,14 @@ int main(int argc, char **argv) {
 
         // end Bcast of gradients
 
+
+        // Template edge detection
         timestamp_start = MPI_Wtime();
         detect_edges(tmagnitude, tedges, tw_i, th_i);
         timestamp_end = MPI_Wtime();
         fprintf(profile_fp, "detect_edges (a=%.0f): %.6f s\n", angle, timestamp_end - timestamp_start);
 
+        // Look-up table construction
         timestamp_start = MPI_Wtime();
         build_lookup_table(tedges, tgrad_x, tgrad_y, tw_i, th_i, &lookup_tables[a]);
         timestamp_end = MPI_Wtime();
@@ -514,22 +519,21 @@ int main(int argc, char **argv) {
 
     free(template_img);
 
+    // File list recovering
     int num_files = 0;
     char **file_list = NULL;
     if (rank == 0) {
-        // SCENEs DISTRIBUTION
+        // Scenes distribution
         char *dir_path = malloc(MAX_FILENAME_LEN);
         snprintf(dir_path, MAX_FILENAME_LEN, "%s%s", "resources/dataset/", argv[1]);
         const char *extension = ".pgm"; // includi il punto: es. ".pgm"
 
-        // Apri la directory
         DIR *dir = opendir(dir_path);
         if (!dir) {
             perror("opendir");
             return EXIT_FAILURE;
         }
 
-        // Array dinamico di nomi di file
         file_list = malloc(MAX_FILES * sizeof(char *));
 
         struct dirent *entry;
@@ -552,18 +556,18 @@ int main(int argc, char **argv) {
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Bcast: %.6f s\n", timestamp_end - timestamp_start);
 
-    // Distribuzione dei file: ogni processo riceve i percorsi che deve elaborare
+    // File distribution: each process receives the paths it needs to process
     int *send_counts = NULL;
     int *displs = NULL;
-    char *all_paths_buffer = NULL; // buffer contiguo di stringhe
+    char *all_paths_buffer = NULL; // contiguous string buffer
     int *path_lengths = NULL;
 
     if (rank == 0) {
-        // Calcola lunghezze delle stringhe e crea buffer contiguo
+        // Calculate string lengths and create contiguous buffers
         path_lengths = malloc(num_files * sizeof(int));
         int total_chars = 0;
         for (int i = 0; i < num_files; i++) {
-            path_lengths[i] = strlen(file_list[i]) + 1; // +1 per il terminatore '\0'
+            path_lengths[i] = strlen(file_list[i]) + 1; // +1 for terminator '\0'
             total_chars += path_lengths[i];
         }
 
@@ -574,7 +578,7 @@ int main(int argc, char **argv) {
             offset += path_lengths[i];
         }
 
-        // Calcolo distribuzione: ogni processo riceve num_files / size (+ resto)
+        // Distribution calculation: each process receives num_files / size (+ remainder)
         send_counts = malloc(size * sizeof(int));
         displs = malloc(size * sizeof(int));
         int base = num_files / size;
@@ -586,7 +590,7 @@ int main(int argc, char **argv) {
 
             int chars_for_rank = 0;
             for (int f = 0; f < files_for_rank; f++) {
-                chars_for_rank += path_lengths[file_index++]; // fix dopo
+                chars_for_rank += path_lengths[file_index++];
             }
 
             send_counts[r] = chars_for_rank;
@@ -595,7 +599,7 @@ int main(int argc, char **argv) {
     }
 
     timestamp_start = MPI_Wtime();
-    // Ogni processo riceve il numero di caratteri del buffer che deve leggere
+    // Each process receives the number of characters from the buffer it needs to read.
     int my_chars = 0;
     if (rank == 0) {
         MPI_Scatter(send_counts, 1, MPI_INT, &my_chars, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -603,20 +607,18 @@ int main(int argc, char **argv) {
         MPI_Scatter(NULL, 1, MPI_INT, &my_chars, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
 
-    // Alloca buffer per ricevere i propri percorsi
     char *my_paths_buffer = malloc(my_chars);
 
-    // Distribuisci i percorsi veri e propri
+    // Distributes the actual routes
     MPI_Scatterv(all_paths_buffer, send_counts, displs, MPI_CHAR,
                  my_paths_buffer, my_chars, MPI_CHAR, 0, MPI_COMM_WORLD);
     timestamp_end = MPI_Wtime();
     fprintf(profile_fp, "MPI_Scatter: %.6f s\n", timestamp_end - timestamp_start);
 
-    // Ricostruisci la lista di stringhe per questo processo
     char **my_files = NULL;
     int my_files_count = 0;
     {
-        // Conta quante stringhe nel mio buffer
+        // Count how many strings in my buffer
         for (int i = 0; i < my_chars; i++) {
             if (my_paths_buffer[i] == '\0')
                 my_files_count++;
@@ -632,8 +634,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Ora ogni processo può caricare le proprie immagini localmente
+    // Each process load its own images locally
     for (int i = 0; i < my_files_count; i++) {
+
+        // Scene loading
         int scene_w = 0, scene_h = 0;
         unsigned char *scene_img = load_image_dynamic(my_files[i], &scene_w, &scene_h);
         int scene_size = scene_w * scene_h;
@@ -643,6 +647,7 @@ int main(int argc, char **argv) {
         float *magnitude = malloc(scene_size * sizeof(float));
         unsigned char *edges = malloc(scene_size);
 
+        // Scene edge detection
         timestamp_start = MPI_Wtime();
         compute_gradient(scene_img, grad_x, grad_y, magnitude, scene_w, scene_h, 1);
         timestamp_end = MPI_Wtime();
@@ -654,16 +659,19 @@ int main(int argc, char **argv) {
         fprintf(profile_fp, "detect_edges (scene): %.6f s\n", timestamp_end - timestamp_start);
         // if (rank == 0) save_edges_pgm("scene_edges.pgm", edges, scene_w, scene_h);
 
+        // Iteration on each look-up table
         for (int ai = 0; ai < NUM_ANGLES; ai++) {
 
             Point *finalDetections = NULL;
             int detectionsCounter = 0;
 
+            // Voting phase
             timestamp_start = MPI_Wtime();
             generalized_hough(edges, grad_x, grad_y, scene_w, scene_h, &finalDetections, &detectionsCounter, ai);
             timestamp_end = MPI_Wtime();
             fprintf(profile_fp, "generalized_hough (a=%.0f): %.6f s\n", angles[ai], timestamp_end - timestamp_start);
 
+            // If something valid is detected -> save overlay detection
             if (detectionsCounter > 0) {
 
                 char fname[128];
